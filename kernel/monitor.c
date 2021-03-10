@@ -41,7 +41,7 @@ int stack_backtrace()
 			args[args_i++] = *p;
 		}
 		printk("LR %lx FP %lx Args ", lr, prev_fp);
-		for (int i = 0; i < args_i; i++) {
+		for (int i = 0; i < 5; i++) {
 			printk("%lx ", args[i]);
 		}
 		printk("\n");
