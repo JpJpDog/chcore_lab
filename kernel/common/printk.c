@@ -55,6 +55,10 @@ enum flags {
 	PAD_RIGHT = 2
 };
 
+// if string len < width
+// 		if flags = PAD_ZERO, print 0 before string
+// 		if flags = PAD_RIGHT, print ' ' after string
+// return print number
 static int prints(char **out, const char *string, int width, int flags)
 {
 	int pc = 0, padchar = ' ';
@@ -100,7 +104,7 @@ static int prints(char **out, const char *string, int width, int flags)
 static int printk_write_num(char **out, long long i, int base, int sign,
 			    int width, int flags, int letbase)
 {
-	char print_buf[PRINT_BUF_LEN];
+	char print_buf[PRINT_BUF_LEN]; //not enough for unsigned binary 64 bits
 	char *s;
 	int t, neg = 0, pc = 0;
 	unsigned long long u = i;
@@ -119,6 +123,18 @@ static int printk_write_num(char **out, long long i, int base, int sign,
 	// store the digitals in the buffer `print_buf`:
 	// 1. the last postion of this buffer must be '\0'
 	// 2. the format is only decided by `base` and `letbase` here
+
+	s = print_buf + PRINT_BUF_LEN;
+	*--s = '\0';
+	while (u) {
+		t = u % base;
+		if (t < 10) {
+			*--s = '0' + t;
+		} else {
+			*--s = t - 10 + letbase;
+		}
+		u /= base;
+	}
 
 	if (neg) {
 		if (width && (flags & PAD_ZERO)) {
