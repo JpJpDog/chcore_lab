@@ -159,11 +159,53 @@ static int get_next_ptp(ptp_t * cur_ptp, u32 level, vaddr_t va,
  * Hint: check the return value of get_next_ptp, if ret == BLOCK_PTP
  * return the pa and block entry immediately
  */
+
+static int find_in_pgtbl(ptp_t *cur_ptp, vaddr_t va, 
+		int *level, paddr_t *pa, pte_t **pte, int *pte_i, bool alloc)
+{
+	ptp_t *next_ptp;
+	int ret;
+	
+	ret = get_next_ptp(cur_ptp, 0, va, &next_ptp, pte, alloc);
+	if (ret < 0) return ret;
+	if (ret == BLOCK_PTP) return -ENOMAPPING;
+
+	cur_ptp = next_ptp;
+	ret = get_next_ptp(cur_ptp, 1, va, &next_ptp, pte, alloc);
+	if (ret < 0) return ret;
+	if (ret == BLOCK_PTP) {
+		*pa = ((*pte)->l1_block.pfn << L1_INDEX_SHIFT) + (va & L1_BLOCK_MASK);
+		*level = 1;
+		goto RET;
+	}
+
+	ret = get_next_ptp(next_ptp, 2, va, &next_ptp, pte, alloc);
+	if (ret < 0) return ret;
+	if (ret == BLOCK_PTP) {
+		*pa = ((*pte)->l2_block.pfn << L2_INDEX_SHIFT) + (va & L2_BLOCK_MASK);
+		*level = 2;
+		goto RET;
+	}
+
+	ret = get_next_ptp(next_ptp, 3, va, &next_ptp, pte, alloc);
+	if (ret < 0) return ret;
+	else if (ret == BLOCK_PTP) return -ENOMAPPING;
+	*pa = ((*pte)->l3_page.pfn << L3_INDEX_SHIFT) + (va & L3_PAGE_MASK);
+	*level = 3;
+
+RET:
+	*pte_i = *pte - cur_ptp->ent;
+	return 0;
+
+}
+
 int query_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t * pa, pte_t ** entry)
 {
-	// <lab2>
+	pte_t *pte;
+	int level, ret, pte_i;
 
-	// </lab2>
+	ret = find_in_pgtbl((ptp_t *)pgtbl, va, &level, pa, entry, &pte_i, false);
+	if (ret < 0) return ret;
 	return 0;
 }
 
@@ -185,9 +227,25 @@ int query_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t * pa, pte_t ** entry)
 int map_range_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t pa,
 		       size_t len, vmr_prop_t flags)
 {
-	// <lab2>
+	pte_t *pte, *cur_pte;
+	int ret, level, pte_i;
+	paddr_t pa1;
+	size_t cur_len;
 
-	// </lab2>
+	va &= ~L3_PAGE_MASK;
+	pa &= ~L3_PAGE_MASK;
+	len &= ~L3_PAGE_MASK;
+	cur_len = 0;
+	while (cur_len != len) {
+		ret = find_in_pgtbl((ptp_t *)pgtbl, va, &level, &pa1, &pte, &pte_i,true);
+		if (ret < 0) return ret;
+		if (level != 3) return -ENOMAPPING;
+		for (cur_pte = pte; (cur_pte - pte < PTP_ENTRIES - pte_i) && cur_len != len; cur_pte++, cur_len += PAGE_SIZE) {
+			set_pte_flags(pte, flags, USER_PTE);
+			pte->l3_page.pfn = (pa + cur_len) >> PAGE_SHIFT;
+		}
+	}
+	flush_tlb();
 	return 0;
 }
 
@@ -206,9 +264,23 @@ int map_range_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t pa,
  */
 int unmap_range_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, size_t len)
 {
-	// <lab2>
+	int level, pte_i, cur_len, ret;
+	paddr_t pa;
+	pte_t *pte, *cur_pte;
 
-	// </lab2>
+	cur_len = 0;
+	va &= ~L3_PAGE_MASK;
+	len &= ~L3_PAGE_MASK;
+
+	while (cur_len != len) {
+		ret = find_in_pgtbl((ptp_t *)pgtbl, va, &level, &pa, &pte, &pte_i, false);
+		if (ret < 0) return ret;
+		if (level != 3) return -ENOMAPPING;
+		for (cur_pte = pte; (cur_pte - pte < PTP_ENTRIES -pte_i) && cur_len!= len; cur_pte++, cur_len += PAGE_SIZE) {
+			pte->pte &= ~AARCH64_PTE_INVALID_MASK;
+		}
+	}
+	flush_tlb();
 	return 0;
 }
 
