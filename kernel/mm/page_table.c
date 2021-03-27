@@ -35,32 +35,63 @@ void set_page_table(paddr_t pgtbl)
 	set_ttbr0_el1(pgtbl);
 }
 
-#define USER_PTE 0
-#define KERNEL_PTE 1
 /*
  * the 3rd arg means the kind of PTE.
  */
-static int set_pte_flags(pte_t * entry, vmr_prop_t flags, int kind)
+static int set_pte_flags(pte_t * entry, vmr_prop_t flags)
 {
-	if (flags & VMR_WRITE)
-		entry->l3_page.AP = AARCH64_PTE_AP_HIGH_RW_EL0_RW;
-	else
-		entry->l3_page.AP = AARCH64_PTE_AP_HIGH_RO_EL0_RO;
+	int lv;
+	lv = (flags & HUGE_PAGE) ? ((flags & VERY_HUGE) ? 1 : 2) : 3;
 
-	if (flags & VMR_EXEC)
-		entry->l3_page.UXN = AARCH64_PTE_UX;
-	else
-		entry->l3_page.UXN = AARCH64_PTE_UXN;
-
-	// EL1 cannot directly execute EL0 accessiable region.
-	if (kind == USER_PTE)
-		entry->l3_page.PXN = AARCH64_PTE_PXN;
-	entry->l3_page.AF = AARCH64_PTE_AF_ACCESSED;
-
-	// inner sharable
-	entry->l3_page.SH = INNER_SHAREABLE;
-	// memory type
-	entry->l3_page.attr_index = NORMAL_MEMORY;
+	if (lv == 3) {
+		if (flags & VMR_WRITE)
+			entry->l3_page.AP = AARCH64_PTE_AP_HIGH_RW_EL0_RW;
+		else
+			entry->l3_page.AP = AARCH64_PTE_AP_HIGH_RO_EL0_RO;
+		if (flags & VMR_EXEC)
+			entry->l3_page.UXN = AARCH64_PTE_UX;
+		else
+			entry->l3_page.UXN = AARCH64_PTE_UXN;
+		if (!(flags & KERNEL_PT))
+			entry->l3_page.PXN = AARCH64_PTE_PXN;
+		entry->l3_page.AF = AARCH64_PTE_AF_ACCESSED;
+		entry->l3_page.SH = INNER_SHAREABLE;
+		entry->l3_page.attr_index = NORMAL_MEMORY;
+		entry->l3_page.is_page = 1;
+		entry->l3_page.is_valid = 1;
+	} else if (lv ==2) {
+		if (flags & VMR_WRITE)
+			entry->l2_block.AP = AARCH64_PTE_AP_HIGH_RW_EL0_RW;
+		else
+			entry->l2_block.AP = AARCH64_PTE_AP_HIGH_RO_EL0_RO;
+		if (flags & VMR_EXEC)
+			entry->l2_block.UXN = AARCH64_PTE_UX;
+		else
+			entry->l2_block.UXN = AARCH64_PTE_UXN;
+		if (!(flags & KERNEL_PT))
+			entry->l2_block.PXN = AARCH64_PTE_PXN;
+		entry->l2_block.AF = AARCH64_PTE_AF_ACCESSED;
+		entry->l2_block.SH = INNER_SHAREABLE;
+		entry->l2_block.attr_index = NORMAL_MEMORY;
+		entry->l2_block.is_table = 0;
+		entry->l2_block.is_valid = 1;
+	} else {
+		if (flags & VMR_WRITE)
+			entry->l1_block.AP = AARCH64_PTE_AP_HIGH_RW_EL0_RW;
+		else
+			entry->l1_block.AP = AARCH64_PTE_AP_HIGH_RO_EL0_RO;
+		if (flags & VMR_EXEC)
+			entry->l1_block.UXN = AARCH64_PTE_UX;
+		else
+			entry->l1_block.UXN = AARCH64_PTE_UXN;
+		if (!(flags & KERNEL_PT))
+			entry->l1_block.PXN = AARCH64_PTE_PXN;
+		entry->l1_block.AF = AARCH64_PTE_AF_ACCESSED;
+		entry->l1_block.SH = INNER_SHAREABLE;
+		entry->l1_block.attr_index = NORMAL_MEMORY;
+		entry->l1_block.is_table = 0;
+		entry->l1_block.is_valid = 1;
+	}
 
 	return 0;
 }
@@ -160,51 +191,42 @@ static int get_next_ptp(ptp_t * cur_ptp, u32 level, vaddr_t va,
  * return the pa and block entry immediately
  */
 
-static int find_in_pgtbl(ptp_t *cur_ptp, vaddr_t va, 
-		int *level, paddr_t *pa, pte_t **pte, int *pte_i, bool alloc)
+static int find_in_pgtbl(ptp_t *cur_ptp, vaddr_t va, bool alloc,
+		int *level, paddr_t *pa, pte_t **pte, int *pte_i)
 {
 	ptp_t *next_ptp;
-	int ret;
-	
-	ret = get_next_ptp(cur_ptp, 0, va, &next_ptp, pte, alloc);
-	if (ret < 0) return ret;
-	if (ret == BLOCK_PTP) return -ENOMAPPING;
-
-	cur_ptp = next_ptp;
-	ret = get_next_ptp(cur_ptp, 1, va, &next_ptp, pte, alloc);
-	if (ret < 0) return ret;
-	if (ret == BLOCK_PTP) {
-		*pa = ((*pte)->l1_block.pfn << L1_INDEX_SHIFT) + (va & L1_BLOCK_MASK);
-		*level = 1;
-		goto RET;
+	int ret, cur_lv, lv;
+	lv = (*level) % 4;
+	if (lv == 0) lv = 3;
+	for (cur_lv = 0; cur_lv < lv; cur_lv++) {
+		ret = get_next_ptp(cur_ptp, cur_lv, va, &cur_ptp, pte, alloc);
+		if (ret < 0) return ret;
+		if (ret == BLOCK_PTP) {
+			if (*level != 0) return -EPERM;
+			else goto GOTTEN;
+		}
 	}
-
-	ret = get_next_ptp(next_ptp, 2, va, &next_ptp, pte, alloc);
+	ret = get_next_ptp(cur_ptp, cur_lv, va, &next_ptp, pte, alloc);
 	if (ret < 0) return ret;
-	if (ret == BLOCK_PTP) {
-		*pa = ((*pte)->l2_block.pfn << L2_INDEX_SHIFT) + (va & L2_BLOCK_MASK);
-		*level = 2;
-		goto RET;
-	}
-
-	ret = get_next_ptp(next_ptp, 3, va, &next_ptp, pte, alloc);
-	if (ret < 0) return ret;
-	else if (ret == BLOCK_PTP) return -ENOMAPPING;
-	*pa = ((*pte)->l3_page.pfn << L3_INDEX_SHIFT) + (va & L3_PAGE_MASK);
-	*level = 3;
-
-RET:
+GOTTEN:
+	*level = cur_lv;
 	*pte_i = *pte - cur_ptp->ent;
+	switch (cur_lv) {
+		case 1: *pa = ((*pte)->l1_block.pfn << L1_INDEX_SHIFT) + GET_VA_OFFSET_L1(va); break;
+		case 2: *pa = ((*pte)->l2_block.pfn << L2_INDEX_SHIFT) + GET_VA_OFFSET_L2(va); break;
+		case 3: *pa = ((*pte)->l3_page.pfn << L3_INDEX_SHIFT) + GET_VA_OFFSET_L3(va); break;
+		default: BUG_ON(1);
+	}
 	return 0;
 
 }
 
 int query_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t * pa, pte_t ** entry)
 {
-	pte_t *pte;
 	int level, ret, pte_i;
 
-	ret = find_in_pgtbl((ptp_t *)pgtbl, va, &level, pa, entry, &pte_i, false);
+	level = 0;
+	ret = find_in_pgtbl((ptp_t *)pgtbl, va, false, &level, pa, entry, &pte_i);
 	if (ret < 0) return ret;
 	return 0;
 }
@@ -231,18 +253,35 @@ int map_range_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t pa,
 	int ret, level, pte_i;
 	paddr_t pa1;
 	size_t cur_len;
+	u64 mask, pg_size;
 
-	va &= ~L3_PAGE_MASK;
-	pa &= ~L3_PAGE_MASK;
-	len &= ~L3_PAGE_MASK;
+	if (!(flags & HUGE_PAGE)) {
+		level = 3;
+		mask = ~L3_PAGE_MASK;
+		pg_size = PAGE_SIZE;
+	} else if (!(flags & VERY_HUGE)) {
+		level = 2;
+		mask = ~L2_BLOCK_MASK;
+		pg_size = PAGE_SIZE * PTP_ENTRIES;
+	} else {
+		level = 1;
+		mask = ~L1_BLOCK_MASK;
+		pg_size = PAGE_SIZE * PTP_ENTRIES * PTP_ENTRIES;
+	}
+	pa &= mask;
+	len &= mask;
 	cur_len = 0;
 	while (cur_len != len) {
-		ret = find_in_pgtbl((ptp_t *)pgtbl, va, &level, &pa1, &pte, &pte_i,true);
+		ret = find_in_pgtbl((ptp_t *)pgtbl, va + cur_len, true, &level, &pa1, &pte, &pte_i);
 		if (ret < 0) return ret;
-		if (level != 3) return -ENOMAPPING;
-		for (cur_pte = pte; (cur_pte - pte < PTP_ENTRIES - pte_i) && cur_len != len; cur_pte++, cur_len += PAGE_SIZE) {
-			set_pte_flags(pte, flags, USER_PTE);
-			pte->l3_page.pfn = (pa + cur_len) >> PAGE_SHIFT;
+		for (cur_pte = pte; (cur_pte - pte < PTP_ENTRIES - pte_i) && cur_len != len; cur_pte++, cur_len += pg_size) {
+			set_pte_flags(cur_pte, flags);
+			switch (level) {
+				case 1: cur_pte->l1_block.pfn = (pa + cur_len) >> L1_INDEX_SHIFT; break;
+				case 2: cur_pte->l2_block.pfn = (pa + cur_len) >> L2_INDEX_SHIFT; break;
+				case 3: cur_pte->l3_page.pfn = (pa + cur_len) >> L3_INDEX_SHIFT; break;
+				default: BUG_ON(1);
+			}
 		}
 	}
 	flush_tlb();
@@ -267,18 +306,26 @@ int unmap_range_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, size_t len)
 	int level, pte_i, cur_len, ret;
 	paddr_t pa;
 	pte_t *pte, *cur_pte;
+	u64 mask, pg_size;
 
+	level = 0;
 	cur_len = 0;
-	va &= ~L3_PAGE_MASK;
-	len &= ~L3_PAGE_MASK;
-
-	while (cur_len != len) {
-		ret = find_in_pgtbl((ptp_t *)pgtbl, va, &level, &pa, &pte, &pte_i, false);
-		if (ret < 0) return ret;
-		if (level != 3) return -ENOMAPPING;
-		for (cur_pte = pte; (cur_pte - pte < PTP_ENTRIES -pte_i) && cur_len!= len; cur_pte++, cur_len += PAGE_SIZE) {
+	ret = find_in_pgtbl((ptp_t *)pgtbl, va, false, &level, &pa, &pte, &pte_i);
+	if (ret < 0) return ret;
+	switch (level) {
+		case 1: mask = ~L1_BLOCK_MASK; pg_size = PAGE_SIZE * PTP_ENTRIES * PTP_ENTRIES; break;
+		case 2: mask = ~L2_BLOCK_MASK; pg_size = PAGE_SIZE * PTP_ENTRIES; break;
+		case 3: mask = ~L3_PAGE_MASK; pg_size = PAGE_SIZE; break;
+		default: BUG_ON(1);
+	}
+	va &= mask;
+	len &= mask;
+	while (true) {
+		for (cur_pte = pte; (cur_pte - pte < PTP_ENTRIES - pte_i) && cur_len != len; cur_pte++, cur_len += pg_size) {
 			pte->pte &= ~AARCH64_PTE_INVALID_MASK;
 		}
+		if (cur_len == len) break;
+		ret = find_in_pgtbl((ptp_t *)pgtbl, va + cur_len, false, &level, &pa, &pte, &pte_i);
 	}
 	flush_tlb();
 	return 0;

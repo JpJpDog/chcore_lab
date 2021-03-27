@@ -119,7 +119,6 @@ struct page *buddy_get_pages(struct phys_mem_pool *pool, u64 order)
 		cur_order++;
 	}
 	if (cur_order == BUDDY_MAX_ORDER) return NULL;
-	struct list_head* h=&(pool->free_lists[cur_order].free_list),*h1=h;
 	page = list_entry(pool->free_lists[cur_order].free_list.next, struct page, node);
 	page->allocated = 1;
 	return split_page(pool, order, page);
