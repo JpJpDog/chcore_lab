@@ -42,57 +42,24 @@ static int set_pte_flags(pte_t * entry, vmr_prop_t flags)
 {
 	int lv;
 	lv = (flags & HUGE_PAGE) ? ((flags & VERY_HUGE) ? 1 : 2) : 3;
-
-	if (lv == 3) {
-		if (flags & VMR_WRITE)
-			entry->l3_page.AP = AARCH64_PTE_AP_HIGH_RW_EL0_RW;
-		else
-			entry->l3_page.AP = AARCH64_PTE_AP_HIGH_RO_EL0_RO;
-		if (flags & VMR_EXEC)
-			entry->l3_page.UXN = AARCH64_PTE_UX;
-		else
-			entry->l3_page.UXN = AARCH64_PTE_UXN;
-		if (!(flags & KERNEL_PT))
-			entry->l3_page.PXN = AARCH64_PTE_PXN;
-		entry->l3_page.AF = AARCH64_PTE_AF_ACCESSED;
-		entry->l3_page.SH = INNER_SHAREABLE;
-		entry->l3_page.attr_index = NORMAL_MEMORY;
+	if (flags & VMR_WRITE)
+		entry->l3_page.AP = AARCH64_PTE_AP_HIGH_RW_EL0_RW;
+	else
+		entry->l3_page.AP = AARCH64_PTE_AP_HIGH_RO_EL0_RO;
+	if (flags & VMR_EXEC)
+		entry->l3_page.UXN = AARCH64_PTE_UX;
+	else
+		entry->l3_page.UXN = AARCH64_PTE_UXN;
+	if (!(flags & KERNEL_PT))
+		entry->l3_page.PXN = AARCH64_PTE_PXN;
+	entry->l3_page.AF = AARCH64_PTE_AF_ACCESSED;
+	entry->l3_page.SH = INNER_SHAREABLE;
+	entry->l3_page.attr_index = NORMAL_MEMORY;
+	entry->l3_page.is_valid = 1;
+	if (lv == 3) 
 		entry->l3_page.is_page = 1;
-		entry->l3_page.is_valid = 1;
-	} else if (lv ==2) {
-		if (flags & VMR_WRITE)
-			entry->l2_block.AP = AARCH64_PTE_AP_HIGH_RW_EL0_RW;
-		else
-			entry->l2_block.AP = AARCH64_PTE_AP_HIGH_RO_EL0_RO;
-		if (flags & VMR_EXEC)
-			entry->l2_block.UXN = AARCH64_PTE_UX;
-		else
-			entry->l2_block.UXN = AARCH64_PTE_UXN;
-		if (!(flags & KERNEL_PT))
-			entry->l2_block.PXN = AARCH64_PTE_PXN;
-		entry->l2_block.AF = AARCH64_PTE_AF_ACCESSED;
-		entry->l2_block.SH = INNER_SHAREABLE;
-		entry->l2_block.attr_index = NORMAL_MEMORY;
-		entry->l2_block.is_table = 0;
-		entry->l2_block.is_valid = 1;
-	} else {
-		if (flags & VMR_WRITE)
-			entry->l1_block.AP = AARCH64_PTE_AP_HIGH_RW_EL0_RW;
-		else
-			entry->l1_block.AP = AARCH64_PTE_AP_HIGH_RO_EL0_RO;
-		if (flags & VMR_EXEC)
-			entry->l1_block.UXN = AARCH64_PTE_UX;
-		else
-			entry->l1_block.UXN = AARCH64_PTE_UXN;
-		if (!(flags & KERNEL_PT))
-			entry->l1_block.PXN = AARCH64_PTE_PXN;
-		entry->l1_block.AF = AARCH64_PTE_AF_ACCESSED;
-		entry->l1_block.SH = INNER_SHAREABLE;
-		entry->l1_block.attr_index = NORMAL_MEMORY;
-		entry->l1_block.is_table = 0;
-		entry->l1_block.is_valid = 1;
-	}
-
+	else 
+		entry->l3_page.is_page = 0;
 	return 0;
 }
 
@@ -121,51 +88,32 @@ static int get_next_ptp(ptp_t * cur_ptp, u32 level, vaddr_t va,
 	u32 index = 0;
 	pte_t *entry;
 
-	if (cur_ptp == NULL)
-		return -ENOMAPPING;
-
+	if (cur_ptp == NULL) return -ENOMAPPING;
 	switch (level) {
-	case 0:
-		index = GET_L0_INDEX(va);
-		break;
-	case 1:
-		index = GET_L1_INDEX(va);
-		break;
-	case 2:
-		index = GET_L2_INDEX(va);
-		break;
-	case 3:
-		index = GET_L3_INDEX(va);
-		break;
-	default:
-		BUG_ON(1);
+	case 0: index = GET_L0_INDEX(va); break;
+	case 1: index = GET_L1_INDEX(va); break;
+	case 2: index = GET_L2_INDEX(va); break;
+	case 3: index = GET_L3_INDEX(va); break;
+	default: BUG_ON(1);
 	}
-
 	entry = &(cur_ptp->ent[index]);
 	if (IS_PTE_INVALID(entry->pte)) {
-		if (alloc == false) {
-			return -ENOMAPPING;
-		} else {
-			/* alloc a new page table page */
-			ptp_t *new_ptp;
-			paddr_t new_ptp_paddr;
-			pte_t new_pte_val;
-
-			/* alloc a single physical page as a new page table page */
-			new_ptp = get_pages(0);
-			BUG_ON(new_ptp == NULL);
-			memset((void *)new_ptp, 0, PAGE_SIZE);
-			new_ptp_paddr = virt_to_phys((vaddr_t) new_ptp);
-
-			new_pte_val.pte = 0;
-			new_pte_val.table.is_valid = 1;
-			new_pte_val.table.is_table = 1;
-			new_pte_val.table.next_table_addr
-			    = new_ptp_paddr >> PAGE_SHIFT;
-
-			/* same effect as: cur_ptp->ent[index] = new_pte_val; */
-			entry->pte = new_pte_val.pte;
-		}
+		if (alloc == false) return -ENOMAPPING;
+		/* alloc a new page table page */
+		ptp_t *new_ptp;
+		paddr_t new_ptp_paddr;
+		pte_t new_pte_val;
+		/* alloc a single physical page as a new page table page */
+		new_ptp = get_pages(0);
+		BUG_ON(new_ptp == NULL);
+		memset((void *)new_ptp, 0, PAGE_SIZE);
+		new_ptp_paddr = virt_to_phys((vaddr_t) new_ptp);
+		new_pte_val.pte = 0;
+		new_pte_val.table.is_valid = 1;
+		new_pte_val.table.is_table = 1;
+		new_pte_val.table.next_table_addr = new_ptp_paddr >> PAGE_SHIFT;
+		/* same effect as: cur_ptp->ent[index] = new_pte_val; */
+		entry->pte = new_pte_val.pte;
 	}
 	*next_ptp = (ptp_t *) GET_NEXT_PTP(entry);
 	*pte = entry;
@@ -198,17 +146,17 @@ static int find_in_pgtbl(ptp_t *cur_ptp, vaddr_t va, bool alloc,
 	int ret, cur_lv, lv;
 	lv = (*level) % 4;
 	if (lv == 0) lv = 3;
-	for (cur_lv = 0; cur_lv < lv; cur_lv++) {
-		ret = get_next_ptp(cur_ptp, cur_lv, va, &cur_ptp, pte, alloc);
+	next_ptp = cur_ptp;
+	for (cur_lv = 0; cur_lv <= lv; cur_lv++) {
+		cur_ptp = next_ptp;
+		ret = get_next_ptp(cur_ptp, cur_lv, va, &next_ptp, pte, alloc);
 		if (ret < 0) return ret;
 		if (ret == BLOCK_PTP) {
 			if (*level != 0) return -EPERM;
-			else goto GOTTEN;
+			break;
 		}
 	}
-	ret = get_next_ptp(cur_ptp, cur_lv, va, &next_ptp, pte, alloc);
-	if (ret < 0) return ret;
-GOTTEN:
+	cur_lv--;
 	*level = cur_lv;
 	*pte_i = *pte - cur_ptp->ent;
 	switch (cur_lv) {
@@ -218,7 +166,6 @@ GOTTEN:
 		default: BUG_ON(1);
 	}
 	return 0;
-
 }
 
 int query_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t * pa, pte_t ** entry)
