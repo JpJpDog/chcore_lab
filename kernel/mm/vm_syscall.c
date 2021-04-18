@@ -319,9 +319,8 @@ u64 sys_handle_brk(u64 addr)
 	struct vmspace *vmspace;
 	struct pmobject *pmo;
 	struct vmregion *vmr;
-	size_t len;
-	u64 retval;
-	int ret;
+	u64 retval, cur_addr, new_addr;
+	int pmo_cap;
 
 	vmspace = obj_get(current_process, VMSPACE_OBJ_ID, TYPE_VMSPACE);
 
@@ -340,18 +339,59 @@ u64 sys_handle_brk(u64 addr)
 	 *
 	 * If addr is larger than heap, the size of vmspace->heap_vmr and the size of its 
 	 * coresponding pmo should be updated. Real physical memory allocation are done in 
-	 * a lazy manner using pagefault handler later at the first access time. 
+	 * a lazy manner using pout_free_objagefault handler later at the first access time. 
 	 *
 	 * If addr is smaller than heap, do nothing and return -EINVAL since we are not going
 	 * to support shink heap. For all other cases, return the virtual address of the heap 
 	 * top.
 	 *
 	 */
+	if (addr == 0) {
+		pmo = obj_alloc(TYPE_PMO, sizeof(*pmo));
+		if(!pmo) {
+			retval = -ENOMEM;
+			goto out_fail;
+		}
+		pmo_init(pmo, PMO_ANONYM, 0, 0);
 
+		pmo_cap = cap_alloc(current_process, pmo, 0);
+		if (pmo_cap < 0) {
+			retval = -ENOMEM;
+			goto out_free_obj;
+		}
+
+		vmr = init_heap_vmr(vmspace, vmspace->user_current_heap, pmo);
+		if (!vmr) {
+			retval = -ENOMEM;
+			goto out_free_obj2;
+		}
+		vmspace->heap_vmr = vmr;
+
+		retval = vmspace->user_current_heap;
+	} else {
+		vmr = vmspace->heap_vmr;
+		cur_addr = vmr->start + vmr->size;
+		if (cur_addr > addr) {
+			new_addr = ROUND_UP(addr - vmr->start, PAGE_SIZE);
+			pmo = vmr->pmo;
+			pmo->size = vmr->size = new_addr;
+			retval = new_addr;
+		} else {
+			retval = -EINVAL;
+			goto out_fail;
+		}
+	}
 	/*
 	 * return origin heap addr on failure;
 	 * return new heap addr on success.
 	 */
+	obj_put(vmspace);
+	return retval;
+ out_free_obj2:
+	cap_free(current_process, pmo_cap);
+ out_free_obj:
+	obj_free(pmo);
+ out_fail:
 	obj_put(vmspace);
 	return retval;
 }

@@ -22,6 +22,9 @@
 #include <common/mm.h>
 #include <common/kmalloc.h>
 
+#include <sched/context.h>
+#include <common/kmalloc.h>
+
 #include "esr.h"
 
 static inline vaddr_t get_fault_addr()
@@ -54,6 +57,7 @@ void do_page_fault(u64 esr, u64 fault_ins_addr)
 				kinfo("pgfault at 0x%p failed\n", fault_addr);
 				sys_exit(ret);
 			}
+			arch_set_thread_next_ip(current_thread, fault_ins_addr);
 			break;
 		}
 	default:
@@ -68,7 +72,6 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
 	struct vmregion *vmr;
 	struct pmobject *pmo;
 	paddr_t pa;
-	u64 offset;
 
 	/*
 	 * Lab3: your code here
@@ -86,6 +89,19 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
 	 * are recorded in a radix tree for easy management. Such code
 	 * has been omitted in our lab for simplification.
 	 */
-
+	vmr = find_vmr_for_va(vmspace, fault_addr);
+	if (vmr == NULL) {
+		return -ENOMAPPING;
+	}
+	pmo = vmr->pmo;
+	if (pmo->type != PMO_ANONYM) {
+		return -ENOMAPPING;
+	}
+	pa =  virt_to_phys(get_pages(0));
+	commit_page_to_pmo(pmo, (u64)pa, pa);
+	fault_addr = ROUND_DOWN(fault_addr, PAGE_SIZE);
+	if (map_range_in_pgtbl(vmspace->pgtbl, fault_addr, pa, PAGE_SIZE, vmr->perm)) {
+		return -ENOMAPPING;
+	}
 	return 0;
 }

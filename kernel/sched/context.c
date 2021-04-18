@@ -39,28 +39,6 @@ void destroy_thread_ctx(struct thread *thread)
 	kfree(kernel_stack);
 }
 
-void init_thread_ctx(struct thread *thread, u64 stack, u64 func, u32 prio,
-		     u32 type, s32 aff)
-{
-	/*
-	 * Lab3: Your code here
-	 * You need to initialize a thread's context here for later eret_to_thread(context) to work properly
-	 *
-	 * In this function, you need setup the registers and type of the thread's context, including:
-	 * 1. Set SP_EL0 to stack.
-	 * 2. Set ELR_EL1 to the entrypoint of this thread.
-	 * 3. Set SPSR_EL1 to SPSR_EL1_EL0t as the properly PSTATE. One of the most
-	 *      important field is SPSR_EL1[3:0] (set as 0 to indicate eret to EL0 in eret_to_thread)
-	 *
-	 * Check out macro in registers.h for more help
-	 */
-
-	/* Fill the context of the thread */
-
-	/* Set thread type */
-	thread->thread_ctx->type = type;
-}
-
 u64 arch_get_thread_stack(struct thread *thread)
 {
 	return thread->thread_ctx->ec.reg[SP_EL0];
@@ -108,4 +86,29 @@ void arch_enable_interrupt(struct thread *thread)
 void arch_disable_interrupt(struct thread *thread)
 {
 	thread->thread_ctx->ec.reg[SPSR_EL1] |= SPSR_EL1_IRQ;
+}
+
+void init_thread_ctx(struct thread *thread, u64 stack, u64 func, u32 prio,
+		     u32 type, s32 aff)
+{
+	/*
+	 * Lab3: Your code here
+	 * You need to initialize a thread's context here for later eret_to_thread(context) to work properly
+	 *
+	 * In this function, you need setup the registers and type of the thread's context, including:
+	 * 1. Set SP_EL0 to stack.
+	 * 2. Set ELR_EL1 to the entrypoint of this thread.
+	 * 3. Set SPSR_EL1 to SPSR_EL1_EL0t as the properly PSTATE. One of the most
+	 *      important field is SPSR_EL1[3:0] (set as 0 to indicate eret to EL0 in eret_to_thread)
+	 *
+	 * Check out macro in registers.h for more help
+	 */
+
+	/* Fill the context of the thread */
+	arch_set_thread_stack(thread, stack);
+	arch_set_thread_next_ip(thread, func);
+	thread->thread_ctx->ec.reg[SPSR_EL1] = SPSR_EL1_EL0t;
+
+	/* Set thread type */
+	thread->thread_ctx->type = type;
 }
