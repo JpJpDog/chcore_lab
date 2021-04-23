@@ -371,7 +371,7 @@ u64 sys_handle_brk(u64 addr)
 	} else {
 		vmr = vmspace->heap_vmr;
 		cur_addr = vmr->start + vmr->size;
-		if (cur_addr > addr) {
+		if (cur_addr < addr) {
 			new_addr = ROUND_UP(addr - vmr->start, PAGE_SIZE);
 			pmo = vmr->pmo;
 			pmo->size = vmr->size = new_addr;
