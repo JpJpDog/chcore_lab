@@ -1,0 +1,81 @@
+练习1  
+armv8有aarch64和aarch32两种模式，分别只能访问自己的寄存器。  
+x86是CISC，arm是RISC。arm有4个权限等级el0到el3。arm的运算指令有三个操作数。  
+常用指令：  
+mrs r0, cpsr 专门读取cpsr的指令  
+cbz/cbnz label 比较是否为0，是则跳到label  
+b{cond} label 条件跳转  
+str r0, [r1, #0x8] 将r0中的值存到r1+8指向的地址  
+stp r0, r1, [r2, #0x10] 同str，同时放两个值，r0在低地址
+加!后缀会把 r和imm的和存回r
+ldr和ldp分别对应str，stp，表示存储，！也一个意思  
+add/sub r0, r1, #imm/r2 r0 <- r1 +/- r2/imm  
+adds/subs 表示会改变cpsr的值  
+
+
+练习2
+入口的地址为0x0000000000080000，是汇编函数_start  
+
+练习3
+init section的address为0x0000000000080000，也是gdb的入口处，入口定义在start.S中  
+执行流是start.S初始化el1，初始化boot stack，调用init_c，初始化uart，mmu等，然后进入kernel。start_kernel初始化kernel stack，然后进入main。  
+在start.S 中会获取当前是否是primary_processor，如果不是则进入无限循环。  
+
+练习4
+init段相同，text，bss，rodata段不同  
+init段为bootloader的代码，运行时还没有开启MMU，没有虚拟地址，所以直接加载到LMA中  
+其他段在kernel中，而且bootloader已经开启了MMU，所以要映射到大于0xffff000000000000的虚拟地址上  
+
+练习5  
+把数字的字符型按照进制放进print_buf中。  
+将最后一个设为\0，然后从后往前每次取base的余数，再除base，若大于9，则以letbase为基础加再减10，否则以'0'为基础  
+
+练习6
+kernel stack定义在main.c中，每个核8192byte，定义为全局变量kernel_stack  
+运行时位于bss段的VMA处0xffffff0000092100，经gdb验证main函数的fp在0xffffff0000090120，小了0x2000为栈的大小，gdb查看main的汇编代码发现大了0x20为进入main函数压栈的fp和lr，以及x0。
+初始化在head.S中的start_kernel中将sp设置为kernel stack首地址+stack大小。  
+没有找到fp（r29）是怎么初始化的，包括在boot stack里也是直接用的，根据main的栈猜测启动时就为0。  
+
+
+练习7
+stack_test函数的地址为 0xffffff000008c020  
+每次调用stack_test会把4个64位入栈，设sp为新的函数栈指针，[sp]为上一个函数的fp，[sp+8]为新函数的返回地址，[sp+16]为上一个函数中x19的值，[sp+24]没有用到  
+
+练习8
+caller FP，callee LR，caller要保护的寄存器，call的额外参数被放在栈中。  
+
+                                ^
+x                 x             |
+x                 x             |  higher address
+x                 x             |
+xxxxxxxxxxxxxxxxxxx
+x                 x
+x  caller lr      x
+x                 x
+xxxxxxxxxxxxxxxxxxx
+x                 x
+x caller^2 fp     x          four bytes
+x                 x
+xxxxxxxxxxxxxxxxxxx<----+
+x                 x     |      ---^---
+x  ......         x     |         |
+x                 x     |         |
+xxxxxxxxxxxxxxxxxxx     |      ---v---
+x                 x     |
+x  arg1           x     |
+x                 x     |
+xxxxxxxxxxxxxxxxxxx     |
+x                 x     |       |
+x  callee lr      x     |       |   lower address
+x                 x     |       |
+xxxxxxxxxxxxxxxxxxx     |       v
+x                 x     |
+x  caller fp      x-----+
+x                 x
+xxxxxxxxxxxxxxxxxxx   <----- callee fp
+                             (current sp)
+                             
+练习9  
+我将read_fp的返回值改为u64 *，感觉更好理解一点。  
+对于每个callee，*fp为caller的fp的值，*(fp+1)位callee的lr，剩下从*(fp+2)一直到caller的fp就是这个栈剩下的内容，caller调用callee时caller自己的参数，和其他一些东西。这里就简单看成全是参数。  
+所以一开始以stack_traceback的fp作为callee的fp this_fp，分别输出*fp,*(fp+1),...,*(u64 *)*fp 一直到this_fp为0退出（main函数的caller的fp为0）

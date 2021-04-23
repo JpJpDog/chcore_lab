@@ -1,6 +1,5 @@
 set architecture aarch64
 target remote localhost:1234
-set directories ./build
 
 define add-symbol-file-auto
 	# Parse .text address to temp file

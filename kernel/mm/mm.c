@@ -50,15 +50,20 @@ unsigned long get_ttbr1(void)
  */
 void map_kernel_space(vaddr_t va, paddr_t pa, size_t len)
 {
-	// <lab2>
-
-	// </lab2>
+	vaddr_t * pgtbl;
+	vmr_prop_t flags;
+	
+	pgtbl = (vaddr_t *)phys_to_virt((paddr_t *)get_ttbr1());
+	flags = 0;
+	flags = VMR_READ | VMR_WRITE | KERNEL_PT | HUGE_PAGE;
+	map_range_in_pgtbl(pgtbl, va, pa, len, flags);
 }
 
 void kernel_space_check(void)
 {
 	unsigned long kernel_val;
 	for (unsigned long i = 128; i < 256; i++) {
+		printk("try to get %llu; ",(KBASE + (i << 21)));
 		kernel_val = *(unsigned long *)(KBASE + (i << 21));
 		kinfo("kernel_val: %lx\n", kernel_val);
 	}

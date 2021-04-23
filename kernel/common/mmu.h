@@ -18,6 +18,8 @@ typedef u64 vmr_prop_t;
 #define VMR_WRITE (1 << 1)
 #define VMR_EXEC  (1 << 2)
 #define KERNEL_PT  (1 << 3)
+#define HUGE_PAGE (1 << 4)
+#define VERY_HUGE (1 << 5)
 /* functions */
 int map_range_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t pa,
 		       size_t len, vmr_prop_t flags);

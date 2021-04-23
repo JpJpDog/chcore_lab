@@ -35,33 +35,31 @@ void set_page_table(paddr_t pgtbl)
 	set_ttbr0_el1(pgtbl);
 }
 
-#define USER_PTE 0
-#define KERNEL_PTE 1
 /*
  * the 3rd arg means the kind of PTE.
  */
-static int set_pte_flags(pte_t * entry, vmr_prop_t flags, int kind)
+static int set_pte_flags(pte_t * entry, vmr_prop_t flags)
 {
+	int lv;
+	lv = (flags & HUGE_PAGE) ? ((flags & VERY_HUGE) ? 1 : 2) : 3;
 	if (flags & VMR_WRITE)
 		entry->l3_page.AP = AARCH64_PTE_AP_HIGH_RW_EL0_RW;
 	else
 		entry->l3_page.AP = AARCH64_PTE_AP_HIGH_RO_EL0_RO;
-
 	if (flags & VMR_EXEC)
 		entry->l3_page.UXN = AARCH64_PTE_UX;
 	else
 		entry->l3_page.UXN = AARCH64_PTE_UXN;
-
-	// EL1 cannot directly execute EL0 accessiable region.
-	if (kind == USER_PTE)
+	if (!(flags & KERNEL_PT))
 		entry->l3_page.PXN = AARCH64_PTE_PXN;
 	entry->l3_page.AF = AARCH64_PTE_AF_ACCESSED;
-
-	// inner sharable
 	entry->l3_page.SH = INNER_SHAREABLE;
-	// memory type
 	entry->l3_page.attr_index = NORMAL_MEMORY;
-
+	entry->l3_page.is_valid = 1;
+	if (lv == 3) 
+		entry->l3_page.is_page = 1;
+	else 
+		entry->l3_page.is_page = 0;
 	return 0;
 }
 
@@ -90,51 +88,32 @@ static int get_next_ptp(ptp_t * cur_ptp, u32 level, vaddr_t va,
 	u32 index = 0;
 	pte_t *entry;
 
-	if (cur_ptp == NULL)
-		return -ENOMAPPING;
-
+	if (cur_ptp == NULL) return -ENOMAPPING;
 	switch (level) {
-	case 0:
-		index = GET_L0_INDEX(va);
-		break;
-	case 1:
-		index = GET_L1_INDEX(va);
-		break;
-	case 2:
-		index = GET_L2_INDEX(va);
-		break;
-	case 3:
-		index = GET_L3_INDEX(va);
-		break;
-	default:
-		BUG_ON(1);
+	case 0: index = GET_L0_INDEX(va); break;
+	case 1: index = GET_L1_INDEX(va); break;
+	case 2: index = GET_L2_INDEX(va); break;
+	case 3: index = GET_L3_INDEX(va); break;
+	default: BUG_ON(1);
 	}
-
 	entry = &(cur_ptp->ent[index]);
 	if (IS_PTE_INVALID(entry->pte)) {
-		if (alloc == false) {
-			return -ENOMAPPING;
-		} else {
-			/* alloc a new page table page */
-			ptp_t *new_ptp;
-			paddr_t new_ptp_paddr;
-			pte_t new_pte_val;
-
-			/* alloc a single physical page as a new page table page */
-			new_ptp = get_pages(0);
-			BUG_ON(new_ptp == NULL);
-			memset((void *)new_ptp, 0, PAGE_SIZE);
-			new_ptp_paddr = virt_to_phys((vaddr_t) new_ptp);
-
-			new_pte_val.pte = 0;
-			new_pte_val.table.is_valid = 1;
-			new_pte_val.table.is_table = 1;
-			new_pte_val.table.next_table_addr
-			    = new_ptp_paddr >> PAGE_SHIFT;
-
-			/* same effect as: cur_ptp->ent[index] = new_pte_val; */
-			entry->pte = new_pte_val.pte;
-		}
+		if (alloc == false) return -ENOMAPPING;
+		/* alloc a new page table page */
+		ptp_t *new_ptp;
+		paddr_t new_ptp_paddr;
+		pte_t new_pte_val;
+		/* alloc a single physical page as a new page table page */
+		new_ptp = get_pages(0);
+		BUG_ON(new_ptp == NULL);
+		memset((void *)new_ptp, 0, PAGE_SIZE);
+		new_ptp_paddr = virt_to_phys((vaddr_t) new_ptp);
+		new_pte_val.pte = 0;
+		new_pte_val.table.is_valid = 1;
+		new_pte_val.table.is_table = 1;
+		new_pte_val.table.next_table_addr = new_ptp_paddr >> PAGE_SHIFT;
+		/* same effect as: cur_ptp->ent[index] = new_pte_val; */
+		entry->pte = new_pte_val.pte;
 	}
 	*next_ptp = (ptp_t *) GET_NEXT_PTP(entry);
 	*pte = entry;
@@ -159,11 +138,43 @@ static int get_next_ptp(ptp_t * cur_ptp, u32 level, vaddr_t va,
  * Hint: check the return value of get_next_ptp, if ret == BLOCK_PTP
  * return the pa and block entry immediately
  */
+
+static int find_in_pgtbl(ptp_t *cur_ptp, vaddr_t va, bool alloc,
+		int *level, paddr_t *pa, pte_t **pte, int *pte_i)
+{
+	ptp_t *next_ptp;
+	int ret, cur_lv, lv;
+	lv = (*level) % 4;
+	if (lv == 0) lv = 3;
+	next_ptp = cur_ptp;
+	for (cur_lv = 0; cur_lv <= lv; cur_lv++) {
+		cur_ptp = next_ptp;
+		ret = get_next_ptp(cur_ptp, cur_lv, va, &next_ptp, pte, alloc);
+		if (ret < 0) return ret;
+		if (ret == BLOCK_PTP) {
+			if (*level != 0) return -EPERM;
+			break;
+		}
+	}
+	cur_lv--;
+	*level = cur_lv;
+	*pte_i = *pte - cur_ptp->ent;
+	switch (cur_lv) {
+		case 1: *pa = ((*pte)->l1_block.pfn << L1_INDEX_SHIFT) + GET_VA_OFFSET_L1(va); break;
+		case 2: *pa = ((*pte)->l2_block.pfn << L2_INDEX_SHIFT) + GET_VA_OFFSET_L2(va); break;
+		case 3: *pa = ((*pte)->l3_page.pfn << L3_INDEX_SHIFT) + GET_VA_OFFSET_L3(va); break;
+		default: BUG_ON(1);
+	}
+	return 0;
+}
+
 int query_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t * pa, pte_t ** entry)
 {
-	// <lab2>
+	int level, ret, pte_i;
 
-	// </lab2>
+	level = 0;
+	ret = find_in_pgtbl((ptp_t *)pgtbl, va, false, &level, pa, entry, &pte_i);
+	if (ret < 0) return ret;
 	return 0;
 }
 
@@ -185,9 +196,42 @@ int query_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t * pa, pte_t ** entry)
 int map_range_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t pa,
 		       size_t len, vmr_prop_t flags)
 {
-	// <lab2>
+	pte_t *pte, *cur_pte;
+	int ret, level, pte_i;
+	paddr_t pa1;
+	size_t cur_len;
+	u64 mask, pg_size;
 
-	// </lab2>
+	if (!(flags & HUGE_PAGE)) {
+		level = 3;
+		mask = ~L3_PAGE_MASK;
+		pg_size = PAGE_SIZE;
+	} else if (!(flags & VERY_HUGE)) {
+		level = 2;
+		mask = ~L2_BLOCK_MASK;
+		pg_size = PAGE_SIZE * PTP_ENTRIES;
+	} else {
+		level = 1;
+		mask = ~L1_BLOCK_MASK;
+		pg_size = PAGE_SIZE * PTP_ENTRIES * PTP_ENTRIES;
+	}
+	pa &= mask;
+	len &= mask;
+	cur_len = 0;
+	while (cur_len != len) {
+		ret = find_in_pgtbl((ptp_t *)pgtbl, va + cur_len, true, &level, &pa1, &pte, &pte_i);
+		if (ret < 0) return ret;
+		for (cur_pte = pte; (cur_pte - pte < PTP_ENTRIES - pte_i) && cur_len != len; cur_pte++, cur_len += pg_size) {
+			set_pte_flags(cur_pte, flags);
+			switch (level) {
+				case 1: cur_pte->l1_block.pfn = (pa + cur_len) >> L1_INDEX_SHIFT; break;
+				case 2: cur_pte->l2_block.pfn = (pa + cur_len) >> L2_INDEX_SHIFT; break;
+				case 3: cur_pte->l3_page.pfn = (pa + cur_len) >> L3_INDEX_SHIFT; break;
+				default: BUG_ON(1);
+			}
+		}
+	}
+	flush_tlb();
 	return 0;
 }
 
@@ -206,9 +250,31 @@ int map_range_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, paddr_t pa,
  */
 int unmap_range_in_pgtbl(vaddr_t * pgtbl, vaddr_t va, size_t len)
 {
-	// <lab2>
+	int level, pte_i, cur_len, ret;
+	paddr_t pa;
+	pte_t *pte, *cur_pte;
+	u64 mask, pg_size;
 
-	// </lab2>
+	level = 0;
+	cur_len = 0;
+	ret = find_in_pgtbl((ptp_t *)pgtbl, va, false, &level, &pa, &pte, &pte_i);
+	if (ret < 0) return ret;
+	switch (level) {
+		case 1: mask = ~L1_BLOCK_MASK; pg_size = PAGE_SIZE * PTP_ENTRIES * PTP_ENTRIES; break;
+		case 2: mask = ~L2_BLOCK_MASK; pg_size = PAGE_SIZE * PTP_ENTRIES; break;
+		case 3: mask = ~L3_PAGE_MASK; pg_size = PAGE_SIZE; break;
+		default: BUG_ON(1);
+	}
+	va &= mask;
+	len &= mask;
+	while (true) {
+		for (cur_pte = pte; (cur_pte - pte < PTP_ENTRIES - pte_i) && cur_len != len; cur_pte++, cur_len += pg_size) {
+			pte->pte &= ~AARCH64_PTE_INVALID_MASK;
+		}
+		if (cur_len == len) break;
+		ret = find_in_pgtbl((ptp_t *)pgtbl, va + cur_len, false, &level, &pa, &pte, &pte_i);
+	}
+	flush_tlb();
 	return 0;
 }
 

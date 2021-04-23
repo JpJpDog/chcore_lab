@@ -7,11 +7,10 @@ void _start_c(long *p)
 	int argc = p[0];
 	char **argv = (void *)(p + 1);
 	char **envp = (void *)(p + 3);
-
 	int ret = main(argc, argv, envp);
 	/*
 	 * Lab3: Your code here
 	 * Complete the main function
 	 */
-	return;
+	usys_exit(ret);
 }
