@@ -104,7 +104,8 @@ void main(void *addr)
 
 void secondary_start(void)
 {
-	kinfo("AP %u is activated!\n", smp_get_cpu_id());
+	u32 cpu_id = smp_get_cpu_id();
+	kinfo("AP %u is activated!\n", cpu_id);
 	exception_init_per_cpu();
 
 	/** 
@@ -112,6 +113,7 @@ void secondary_start(void)
 	 * Inform the BSP at last to start cpu one by one
 	 * Hints: use cpu_status
 	*/
+	cpu_status[cpu_id] = cpu_run;
 
 #ifndef TEST
 	run_test(false);
