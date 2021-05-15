@@ -121,6 +121,7 @@ int is_locked(struct lock *lock)
  */
 void kernel_lock_init(void)
 {
+	lock_init(&big_kernel_lock);
 }
 
 /**
@@ -129,6 +130,7 @@ void kernel_lock_init(void)
  */
 void lock_kernel(void)
 {
+	lock(&big_kernel_lock);
 }
 
 /**
@@ -137,4 +139,5 @@ void lock_kernel(void)
  */
 void unlock_kernel(void)
 {
+	unlock(&big_kernel_lock);
 }
