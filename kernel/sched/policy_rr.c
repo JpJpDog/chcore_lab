@@ -51,7 +51,23 @@ struct thread idle_threads[PLAT_CPU_NUM];
  */
 int rr_sched_enqueue(struct thread *thread)
 {
-	return -1;
+	if (thread == NULL || thread->thread_ctx == NULL || thread->thread_ctx->state == TS_READY) {
+		return -EINVAL;
+	}
+	if (thread->thread_ctx->type == TYPE_IDLE) {
+		return 0;
+	}
+	u32 cpu_id = smp_get_cpu_id();
+	if (thread->thread_ctx->affinity != NO_AFF) {
+		cpu_id = thread->thread_ctx->affinity;
+		if (cpu_id >= PLAT_CPU_NUM) {
+			return -EINVAL;
+		}
+	}
+	thread->thread_ctx->state = TS_READY;
+	thread->thread_ctx->cpuid = cpu_id;
+	list_append(&thread->ready_queue_node, &rr_ready_queue[cpu_id]);
+	return 0;
 }
 
 /*
@@ -62,7 +78,15 @@ int rr_sched_enqueue(struct thread *thread)
  */
 int rr_sched_dequeue(struct thread *thread)
 {
-	return -1;
+	if (thread == NULL || thread->thread_ctx == NULL || thread->thread_ctx->state != TS_READY) {
+		return -EINVAL;
+	}
+	if (thread->thread_ctx->type == TYPE_IDLE) {
+		return 0;
+	}
+	list_del(&thread->ready_queue_node);
+	thread->thread_ctx->state = TS_INTER;
+	return 0;
 }
 
 /*
@@ -78,11 +102,23 @@ int rr_sched_dequeue(struct thread *thread)
  */
 struct thread *rr_sched_choose_thread(void)
 {
-	return NULL;
+	u32 cpu_id = smp_get_cpu_id();
+	struct thread *choose_thread = &idle_threads[cpu_id];
+	if (!list_empty(&rr_ready_queue[cpu_id])) {
+		choose_thread = list_entry(rr_ready_queue[cpu_id].next, struct thread, ready_queue_node);
+		if (choose_thread->thread_ctx->state != TS_READY || choose_thread->thread_ctx->type == TYPE_IDLE) {
+			return NULL;
+		} 
+		if (rr_sched_dequeue(choose_thread)){
+			return NULL;
+		}
+	}
+	return choose_thread;
 }
 
 static inline void rr_sched_refill_budget(struct thread *target, u32 budget)
 {
+	// target->thread_ctx->sc->budget = budget;
 }
 
 /*
@@ -99,7 +135,16 @@ static inline void rr_sched_refill_budget(struct thread *target, u32 budget)
  */
 int rr_sched(void)
 {
-	return -1;
+	struct thread* cur_thread = current_thread;
+	if (cur_thread != NULL) {
+		rr_sched_enqueue(cur_thread);
+	}
+	struct thread* choose_thread = rr_sched_choose_thread();
+	if (choose_thread == NULL) {
+		return -EINVAL;
+	}
+	// rr_sched_refill_budget(choose_thread, DEFAULT_BUDGET);
+	return switch_to_thread(choose_thread);
 }
 
 /*
@@ -140,6 +185,10 @@ int rr_sched_init(void)
  */
 void rr_sched_handle_timer_irq(void)
 {
+	// if (current_thread == NULL || current_thread->thread_ctx->sc->budget == 0) {
+	// 	return;
+	// }
+	// current_thread->thread_ctx->sc->budget--;
 }
 
 struct sched_ops rr = {
