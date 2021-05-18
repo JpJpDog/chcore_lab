@@ -140,6 +140,13 @@ u64 switch_context(void)
  */
 void sys_yield(void)
 {
+	struct thread *cur_thread = current_thread;
+	if (cur_thread == NULL || cur_thread->thread_ctx == NULL || cur_thread->thread_ctx->sc == NULL) {
+		return;
+	}
+	current_thread->thread_ctx->sc->budget = 0;
+	sched();
+	eret_to_thread(switch_context());
 }
 
 int sched_init(struct sched_ops *sched_ops)

@@ -32,14 +32,15 @@ void exception_init_per_cpu(void)
 	 * Uncomment the timer_init() when you are handling preemptive
 	 * shceduling
 	 */
-	// timer_init();
+	timer_init();
 
 	/**
 	 * Lab3: Your code here
 	 * Setup the exception vector with the asm function written in exception.S
 	 */
-	set_exception_vector();
 	disable_irq();
+	set_exception_vector();
+	enable_irq();
 }
 
 void exception_init(void)
