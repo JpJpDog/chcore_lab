@@ -96,6 +96,7 @@ int ipc_register_client(int server_thread_cap, ipc_struct_t * ipc_struct)
 
 	if (conn_cap < 0)
 		return -1;
+	// buf has alloc in syscall
 	ipc_struct->shared_buf = vm_config.buf_base_addr;
 	ipc_struct->shared_buf_len = vm_config.buf_size;
 	ipc_struct->conn_cap = conn_cap;

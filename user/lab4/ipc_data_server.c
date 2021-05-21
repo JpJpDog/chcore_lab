@@ -31,8 +31,10 @@ int main(int argc, char *argv[], char *envp[])
 	fail_cond(ret < 0, "[IPC Server] register server failed\n", ret);
 
 	info_page = (struct info_page *)info_page_addr;
+	// finish init server_ipc_config
 	info_page->ready_flag = 1;
 
+	//wait for finishing IPC
 	while (info_page->exit_flag != 1) {
 		usys_yield();
 	}

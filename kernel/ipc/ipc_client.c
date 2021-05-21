@@ -94,12 +94,13 @@ static int create_connection(struct thread *source, struct thread *target,
 		ret = -ENOMEM;
 		goto out_fail;
 	}
+	// copy a thread the same as `target` as the conn->target ?
 	conn->target = create_server_thread(target);
 	if (!conn->target) {
 		ret = -ENOMEM;
 		goto out_fail;
 	}
-	// Get the server's ipc config
+	// Get the server's ipc config, set the bitmap. 'bitmap is ref so only one'
 	server_ipc_config = target->server_ipc_config;
 	vm_config = &server_ipc_config->vm_config;
 	conn_idx = find_next_zero_bit(server_ipc_config->conn_bmp,
@@ -179,7 +180,7 @@ u32 sys_register_client(u32 server_cap, u64 vm_config_ptr)
 	u64 client_buf_size;
 	int conn_cap = 0;
 	int r = 0;
-
+	// copy the vm_config, bufsize and bufbase in it
 	r = copy_from_user((char *)&vm_config, (char *)vm_config_ptr,
 			   sizeof(vm_config));
 	if (r < 0)

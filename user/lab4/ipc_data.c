@@ -40,6 +40,7 @@ int main(int argc, char *argv[], char *envp[])
 	info_page->nr_args = 0;
 
 	pmo_map_reqs[0].pmo_cap = info_pmo_cap;
+	// the info page addr map in server process.
 	pmo_map_reqs[0].addr = 0x100000000;
 	pmo_map_reqs[0].perm = VM_READ | VM_WRITE;
 
@@ -50,6 +51,7 @@ int main(int argc, char *argv[], char *envp[])
 		    pmo_map_reqs, 1, NULL, 0, 1);
 	fail_cond(ret < 0, "create_process returns %d\n", ret);
 
+	//wait for the server finish init server_ipc_config
 	while (info_page->ready_flag != 1)
 		usys_yield();
 
@@ -58,6 +60,7 @@ int main(int argc, char *argv[], char *envp[])
 	fail_cond(ret < 0, "ipc_register_client failed\n");
 
 	/* IPC send cap */
+	// the addr is set as the buf addr in rpc.c:100
 	ipc_msg = ipc_create_msg(&client_ipc_struct, 4 * 100, 0);
 	for (i = 0; i < 100; i++) {
 		ipc_set_msg_data(ipc_msg, (char *)&i, i * 4, 4);
@@ -67,6 +70,7 @@ int main(int argc, char *argv[], char *envp[])
 	ipc_destroy_msg(ipc_msg);
 
 	printf("[Client] exit\n");
+	// notice the server it finishes
 	info_page->exit_flag = 1;
 
 	return 0;

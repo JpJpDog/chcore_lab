@@ -72,6 +72,7 @@ const void *syscall_table[NR_SYSCALL] = {
 	[SYS_register_client] = sys_register_client,
 	[SYS_ipc_call] = sys_ipc_call,
 	[SYS_ipc_return] = sys_ipc_return,
+	[SYS_ipc_reg_call] = sys_ipc_reg_call,
 	[SYS_cap_copy_to] = sys_cap_copy_to,
 	[SYS_cap_copy_from] = sys_cap_copy_from,
 	[SYS_set_affinity] = sys_set_affinity,
