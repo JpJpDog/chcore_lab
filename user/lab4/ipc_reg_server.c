@@ -14,6 +14,7 @@ int main(int argc, char *argv[], char *envp[])
 	int ret;
 	void *info_page_addr;
 	struct info_page *info_page;
+	u64 value;
 
 	info_page_addr = (void *)(envp[0]);
 	fail_cond(info_page_addr == NULL, "[Server] no info received.\n");
@@ -29,5 +30,11 @@ int main(int argc, char *argv[], char *envp[])
 	}
 
 	printf("[Server] exit\n");
+
+	printf("[Recver] start\n");
+	info_page->ready_flag = 2;
+	value = usys_ipc_recv();
+	printf("[Recver] exit value %lld\n", value);
+
 	return 0;
 }

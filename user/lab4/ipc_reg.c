@@ -17,6 +17,7 @@ int main(int argc, char *argv[], char *envp[])
 	ipc_struct_t client_ipc_struct;
 	struct info_page *info_page;
 	struct pmo_map_request pmo_map_reqs[1];
+	u64 value;
 
 	usys_fs_load_cpio(CPIO_BIN);
 
@@ -61,5 +62,13 @@ int main(int argc, char *argv[], char *envp[])
 	printf("[Client] exit\n");
 	info_page->exit_flag = 1;
 
+	printf("[Sender] start!\n");
+	value = 123456;
+	while (info_page->ready_flag != 2) {
+		usys_yield();
+	}
+	printf("get here!\n");
+	usys_ipc_send(new_process_cap, new_thread_cap, value);
+	printf("[Sender] exit\n");
 	return 0;
 }

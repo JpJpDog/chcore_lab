@@ -26,6 +26,9 @@
 /* Lab4 specfic */
 #define SYS_get_cpu_id                          50
 #define SYS_ipc_reg_call                        51
+#define SYS_ipc_send							52
+#define SYS_ipc_recv							53
+#define SYS_ipc_recv_result						54
 
 #define SYS_create_pmos                         101
 #define SYS_map_pmos                            102
@@ -59,6 +62,8 @@ u64 usys_register_server(u64 callback, u64 max_client, u64 vm_config_ptr);
 u32 usys_register_client(u32 server_cap, u64 vm_config_ptr);
 u64 usys_ipc_call(u32 conn_cap, u64 arg0);
 u64 usys_ipc_reg_call(u32 conn_cap, u64 arg0);
+u64 usys_ipc_send(u32 target_process_cap, u32 target_thread_cap, u64 value);
+u64 usys_ipc_recv();
 void usys_ipc_return(u64 ret);
 int usys_debug(void);
 int usys_cap_copy_to(u64 dest_process_cap, u64 src_slot_id);

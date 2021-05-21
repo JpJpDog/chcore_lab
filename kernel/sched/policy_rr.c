@@ -64,7 +64,9 @@ int rr_sched_enqueue(struct thread *thread)
 			return -EINVAL;
 		}
 	}
-	thread->thread_ctx->state = TS_READY;
+	if (thread->thread_ctx->state != TS_WAITING) {
+		thread->thread_ctx->state = TS_READY;
+	}
 	thread->thread_ctx->cpuid = cpu_id;
 	list_append(&thread->ready_queue_node, &rr_ready_queue[cpu_id]);
 	return 0;
@@ -103,17 +105,16 @@ int rr_sched_dequeue(struct thread *thread)
 struct thread *rr_sched_choose_thread(void)
 {
 	u32 cpu_id = smp_get_cpu_id();
-	struct thread *choose_thread = &idle_threads[cpu_id];
-	if (!list_empty(&rr_ready_queue[cpu_id])) {
-		choose_thread = list_entry(rr_ready_queue[cpu_id].next, struct thread, ready_queue_node);
-		if (choose_thread->thread_ctx->state != TS_READY || choose_thread->thread_ctx->type == TYPE_IDLE) {
-			return NULL;
-		} 
-		if (rr_sched_dequeue(choose_thread)){
-			return NULL;
+	struct thread *choose_thread = NULL;
+	for_each_in_list(choose_thread, struct thread, ready_queue_node, &rr_ready_queue[cpu_id]) {
+		if (choose_thread->thread_ctx->state == TS_READY) {
+			if (rr_sched_dequeue(choose_thread)) {
+				return NULL;
+			}
+			return choose_thread;
 		}
 	}
-	return choose_thread;
+	return &idle_threads[cpu_id];
 }
 
 static inline void rr_sched_refill_budget(struct thread *target, u32 budget)
@@ -143,7 +144,7 @@ int rr_sched(void)
 			return 0;
 		}
 		int ret;
-		if (ret = rr_sched_enqueue(cur_thread)) {
+		if ((ret = rr_sched_enqueue(cur_thread))) {
 			return ret;
 		}
 	}

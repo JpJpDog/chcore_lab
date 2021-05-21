@@ -39,6 +39,7 @@ struct thread {
 
 	struct ipc_connection *active_conn;
 	struct server_ipc_config *server_ipc_config;
+	struct recv_value *recv_value;
 };
 
 void switch_thread_vmspace_to(struct thread *);

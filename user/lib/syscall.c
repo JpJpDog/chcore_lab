@@ -147,6 +147,17 @@ u64 usys_ipc_reg_call(u32 conn_cap, u64 arg0)
 	return syscall(SYS_ipc_reg_call, conn_cap, arg0, 0, 0, 0, 0, 0, 0, 0);
 }
 
+u64 usys_ipc_send(u32 target_process_cap, u32 target_thread_cap, u64 value)
+{
+	return syscall(SYS_ipc_send, target_process_cap, target_thread_cap, value, 0, 0, 0, 0, 0, 0);
+}
+
+u64 usys_ipc_recv()
+{
+	syscall(SYS_ipc_recv, 0, 0, 0, 0, 0, 0, 0, 0 ,0);
+	return syscall(SYS_ipc_recv_result, 0, 0, 0, 0, 0, 0, 0, 0 ,0);
+}
+
 void usys_ipc_return(u64 ret)
 {
 	syscall(SYS_ipc_return, ret, 0, 0, 0, 0, 0, 0, 0, 0);

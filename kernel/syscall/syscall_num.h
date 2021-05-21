@@ -41,6 +41,9 @@ void sys_register_client(void);
 void sys_ipc_call(void);
 void sys_ipc_reg_call(void);
 void sys_ipc_return(void);
+void sys_ipc_send(void);
+void sys_ipc_recv(void);
+void sys_ipc_recv_result(void);
 
 #define SYS_putc				0
 #define SYS_getc				1
@@ -66,6 +69,9 @@ void sys_ipc_return(void);
 /* Lab4 specfic */
 #define SYS_get_cpu_id                          50
 #define SYS_ipc_reg_call                        51
+#define SYS_ipc_send                            52
+#define SYS_ipc_recv                            53
+#define SYS_ipc_recv_result                     54
 
 #define SYS_create_pmos                         101
 #define SYS_map_pmos                            102

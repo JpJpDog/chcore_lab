@@ -69,11 +69,18 @@ typedef struct ipc_msg {
 	u64 cap_slots_offset;
 } ipc_msg_t;
 
+struct recv_value {
+	u64 value;
+};
+
 /* syscall related to IPC */
 u64 sys_register_server(u64 callback, u64 max_client, u64 vm_config_ptr);
 u32 sys_register_client(u32 server_cap, u64 vm_config_ptr);
 u64 sys_ipc_call(u32 conn_cap, ipc_msg_t * ipc_msg);
 u64 sys_ipc_reg_call(u32 conn_cap, u64 arg);
 void sys_ipc_return(u64 ret);
+u64 sys_ipc_send(u32 process_cap, u32 thread_cap, u64 value);
+u64 sys_ipc_recv();
+u64 sys_ipc_recv_result();
 
 #define LAB4_IPC_BLANK 0
