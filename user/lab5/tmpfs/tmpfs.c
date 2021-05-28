@@ -130,6 +130,19 @@ static int tfs_mknod(struct inode *dir, const char *name, size_t len, int mkdir)
 		return -ENOENT;
 	}
 	// TODO: write your code here
+	if (tfs_lookup(dir, name, len)) {
+		return -EEXIST;
+	}
+	inode = mkdir ? new_dir() : new_reg();
+	if (IS_ERR(inode)) {
+		return inode;
+	}
+	dent = new_dent(inode, name, len);
+	if (IS_ERR(dent)) {
+		return dent;
+	}
+	init_hlist_node(&dent->node);
+	htable_add(&dir->dentries, (u32)dent->name.hash, &dent->node);	
 
 	return 0;
 }
@@ -170,16 +183,12 @@ static struct dentry *tfs_lookup(struct inode *dir, const char *name,
 // Note that when `*name` ends with '/', the inode of last component will be
 // saved in `*dirat` regardless of its type (e.g., even when it's FS_REG) and
 // `*name` will point to '\0'
+// ! when return -ENOENT, `name` is the problem term, `dirat` is the last one
 int tfs_namex(struct inode **dirat, const char **name, int mkdir_p)
 {
 	BUG_ON(dirat == NULL);
 	BUG_ON(name == NULL);
 	BUG_ON(*name == NULL);
-
-	char buff[MAX_FILENAME_LEN + 1];
-	int i;
-	struct dentry *dent;
-	int err;
 
 	if (**name == '/') {
 		*dirat = tmpfs_root;
@@ -194,6 +203,32 @@ int tfs_namex(struct inode **dirat, const char **name, int mkdir_p)
 	// make sure a child name exists
 	if (!**name)
 		return -EINVAL;
+
+	while (**name) {
+		// check the type when dirat is not the last parsed term
+		if ((*dirat)->type != FS_DIR) {
+			return -ENOENT;
+		}
+		char *cur_ch = *name;
+		while (*cur_ch && *cur_ch != '/') {
+			cur_ch++;
+		}
+		struct dentry *dent = tfs_lookup(*dirat, *name, cur_ch - *name);
+		if (!dent) {
+			// make dir when is not the last term
+			if (mkdir_p && *cur_ch) {
+				dent = tfs_mkdir(*dirat, *name, cur_ch - *name);
+			} else {
+				return -ENOENT;
+			}
+		}
+		*dirat = dent->inode;
+		*name = cur_ch;
+		while (**name && **name == '/') {
+			++(*name);
+		}
+	}
+
 	return 0;
 }
 
@@ -271,11 +306,30 @@ ssize_t tfs_file_write(struct inode * inode, off_t offset, const char *data,
 	BUG_ON(offset > inode->size);
 
 	u64 page_no, page_off;
-	u64 cur_off = offset;
+	u64 cur_off = MIN(offset, inode->size);
 	size_t to_write;
 	void *page;
 
 	// TODO: write your code here
+
+	while (cur_off < offset + size) {
+		page_no = ROUND_DOWN(cur_off, PAGE_SIZE) / PAGE_SIZE;
+		page_off = cur_off - ROUND_DOWN(cur_off, PAGE_SIZE);
+		page = radix_get(&inode->data, page_no);
+		if (!page) {
+			page = malloc(PAGE_SIZE);
+			radix_add(&inode->data, page_no, page);
+		}
+		if (cur_off < offset) {
+			to_write = MIN(offset - cur_off, PAGE_SIZE - page_off);
+			memset(page + page_off, 0, to_write);
+		} else {
+			to_write = MIN(offset + size - cur_off, PAGE_SIZE - page_off);
+			memcpy(page + page_off, data + cur_off - offset, to_write);
+		}
+		cur_off += to_write;
+	}
+	inode->size = cur_off;
 
 	return cur_off - offset;
 }
@@ -294,6 +348,18 @@ ssize_t tfs_file_read(struct inode * inode, off_t offset, char *buff,
 	u64 cur_off = offset;
 	size_t to_read;
 	void *page;
+
+	u64 read_end = MIN(offset + size, inode->size);
+	while (cur_off < read_end ) {
+		page_no = ROUND_DOWN(cur_off, PAGE_SIZE) / PAGE_SIZE;
+		page_off = cur_off - ROUND_DOWN(cur_off, PAGE_SIZE);
+		to_read = MIN(PAGE_SIZE - page_off, read_end - cur_off);
+		page = radix_get(&inode->data, page_no);
+		if (!page) {
+			return -ENOENT;
+		}
+		memcpy(buff, page + page_off, to_read);
+	}
 
 	return cur_off - offset;
 }
@@ -318,6 +384,13 @@ int tfs_load_image(const char *start)
 
 	for (f = g_files.head.next; f; f = f->next) {
 		// TODO: Lab5: your code is here
+		// dirat = tmpfs_root;
+		// leaf = f->name;
+		// err = tfs_namex(&dirat, &leaf, 1);
+		// if (err < 0 && err != -ENOENT) {
+		// 	return err;
+		// }
+		
 	}
 
 	return 0;
