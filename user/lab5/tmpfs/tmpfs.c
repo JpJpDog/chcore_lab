@@ -205,7 +205,7 @@ int tfs_namex(struct inode **dirat, const char **name, int mkdir_p)
 	if (!**name)
 		return -EINVAL;
 
-	while (**name) {
+	while (1) {
 		// check the type when dirat is not the last parsed term
 		if ((*dirat)->type != FS_DIR) {
 			return -ENOENT;
@@ -228,14 +228,16 @@ int tfs_namex(struct inode **dirat, const char **name, int mkdir_p)
 				return -ENOENT;
 			}
 		}
+		while (*cur_ch && *cur_ch == '/') {
+			++cur_ch;
+		}
+		if (!*cur_ch) {
+			return 0;
+		}
 		*dirat = dent->inode;
 		*name = cur_ch;
-		while (**name && **name == '/') {
-			++(*name);
-		}
 	}
-
-	return 0;
+	// never reach here
 }
 
 int tfs_remove(struct inode *dir, const char *name, size_t len)
