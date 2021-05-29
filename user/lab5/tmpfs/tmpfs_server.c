@@ -22,6 +22,15 @@ int fs_server_mkdir(const char *path)
 	BUG_ON(*path != '/');
 
 	// TODO: your code here
+	err = tfs_namex(&dirat, &leaf, 0);
+	if (!err) {
+		return -EEXIST;
+	}
+	// all term should exist except the last one
+	if (err != -ENOENT || strstr(leaf, "/")) {
+		return err;
+	}
+	err = tfs_mkdir(dirat, leaf, strlen(leaf));
 	return err;
 }
 
@@ -35,7 +44,13 @@ int fs_server_creat(const char *path)
 	BUG_ON(*path != '/');
 
 	// TODO: your code here
-	return 0;
+	err = tfs_namex(&dirat, &leaf, 0);
+	if (!err) {
+		return -EEXIST;
+	} else if (err != -ENOENT || strstr(leaf, "/")) {
+		return err;
+	}
+	return tfs_creat(dirat, leaf, strlen(leaf));
 }
 
 int fs_server_unlink(const char *path)
@@ -48,7 +63,11 @@ int fs_server_unlink(const char *path)
 	BUG_ON(*path != '/');
 
 	// TODO: your code here
-	return err;
+	err = tfs_namex(&dirat, &leaf, 0);
+	if (err) {
+		return err;
+	}
+	return tfs_remove(dirat, leaf, strlen(leaf));
 }
 
 int fs_server_rmdir(const char *path)
@@ -61,20 +80,30 @@ int fs_server_rmdir(const char *path)
 	BUG_ON(*path != '/');
 
 	// TODO: your code here
-	return err;
+	err = tfs_namex(&dirat, &leaf, 0);
+	if (err) {
+		return err;
+	}
+	return tfs_remove(dirat, leaf, strlen(leaf));
 }
 
 /* use absolute path, offset and count to read directly */
 int fs_server_read(const char *path, off_t offset, void *buf, size_t count)
 {
 	struct inode *inode;
-	int ret = -ENOENT;
 
 	BUG_ON(!path);
 	BUG_ON(*path != '/');
 
 	// TODO: your code here
-	return ret;
+	inode = tfs_open_path(path);
+	if (!inode || inode->type != FS_REG) {
+		return -ENOENT;
+	}
+	if (offset > inode->size) {
+		return -EINVAL;
+	}
+	return tfs_file_read(inode, offset, buf, count);
 }
 
 /* use absolute path, offset and count to write directly */
@@ -82,13 +111,16 @@ int fs_server_write(const char *path, off_t offset, const void *buf,
 		    size_t count)
 {
 	struct inode *inode;
-	int ret = -ENOENT;
 
 	BUG_ON(!path);
 	BUG_ON(*path != '/');
 
 	// TODO: your code here
-	return ret;
+	inode = tfs_open_path(path);
+	if (!inode || inode->type != FS_REG) {
+		return -ENOENT;
+	}
+	return tfs_file_write(inode, offset, buf, count);
 }
 
 ssize_t fs_server_get_size(const char *path)

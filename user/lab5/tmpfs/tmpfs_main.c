@@ -13,10 +13,10 @@ static void fs_dispatch(ipc_msg_t * ipc_msg)
 		struct fs_request *fr = (struct fs_request *)
 		    ipc_get_msg_data(ipc_msg);
 		switch (fr->req) {
-		case FS_REQ_SCAN:{
-				// TODO: you code here
-				break;
-			}
+		case FS_REQ_SCAN:
+			// TODO: you code here
+			fs_server_scan(fr->path, fr->offset, fr->buff, fr->count);
+			break;
 		case FS_REQ_MKDIR:
 			ret = fs_server_mkdir(fr->path);
 			break;
@@ -39,19 +39,17 @@ static void fs_dispatch(ipc_msg_t * ipc_msg)
 			      ((int *)ipc_get_msg_data(ipc_msg))[0]);
 			usys_exit(-1);
 			break;
-		case FS_REQ_WRITE:{
-				// TODO: you code here
-				break;
-			}
-		case FS_REQ_READ:{
-				// TODO: you code here
-				break;
-			}
-		case FS_REQ_GET_SIZE:{
-				ret = fs_server_get_size(fr->path);
-				break;
-
-			}
+		case FS_REQ_WRITE:
+			// TODO: you code here
+			ret = fs_server_write(fr->path, fr->offset, fr->buff, fr->count);
+			break;
+		case FS_REQ_READ:
+			// TODO: you code here
+			ret = fs_server_read(fr->path, fr->offset, fr->buff, fr->count);
+			break;
+		case FS_REQ_GET_SIZE:
+			ret = fs_server_get_size(fr->path);
+			break;
 		default:
 			error("%s: %d Not impelemented yet\n", __func__,
 			      ((int *)ipc_get_msg_data(ipc_msg))[0]);

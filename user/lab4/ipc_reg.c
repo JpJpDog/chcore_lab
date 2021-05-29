@@ -67,7 +67,6 @@ int main(int argc, char *argv[], char *envp[])
 	while (info_page->ready_flag != 2) {
 		usys_yield();
 	}
-	printf("get here!\n");
 	usys_ipc_send(new_process_cap, new_thread_cap, value);
 	printf("[Sender] exit\n");
 	return 0;

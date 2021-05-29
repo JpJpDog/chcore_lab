@@ -8,6 +8,7 @@
 
 static struct inode *tmpfs_root;
 
+static struct dentry *tfs_lookup(struct inode *dir, const char *name, size_t len);
 /*
  * Helper functions to calucate hash value of string
  */
@@ -135,11 +136,11 @@ static int tfs_mknod(struct inode *dir, const char *name, size_t len, int mkdir)
 	}
 	inode = mkdir ? new_dir() : new_reg();
 	if (IS_ERR(inode)) {
-		return inode;
+		return PTR_ERR(inode);
 	}
 	dent = new_dent(inode, name, len);
 	if (IS_ERR(dent)) {
-		return dent;
+		return PTR_ERR(inode);
 	}
 	init_hlist_node(&dent->node);
 	htable_add(&dir->dentries, (u32)dent->name.hash, &dent->node);	
@@ -169,7 +170,7 @@ static struct dentry *tfs_lookup(struct inode *dir, const char *name,
 	head = htable_get_bucket(&dir->dentries, (u32) hash);
 
 	for_each_in_hlist(dent, node, head) {
-		if (dent->name.len == len && 0 == strcmp(dent->name.str, name))
+		if (dent->name.len == len && 0 == strncmp(dent->name.str, name, len))
 			return dent;
 	}
 	return NULL;
@@ -209,7 +210,7 @@ int tfs_namex(struct inode **dirat, const char **name, int mkdir_p)
 		if ((*dirat)->type != FS_DIR) {
 			return -ENOENT;
 		}
-		char *cur_ch = *name;
+		const char *cur_ch = *name;
 		while (*cur_ch && *cur_ch != '/') {
 			cur_ch++;
 		}
@@ -217,7 +218,12 @@ int tfs_namex(struct inode **dirat, const char **name, int mkdir_p)
 		if (!dent) {
 			// make dir when is not the last term
 			if (mkdir_p && *cur_ch) {
-				dent = tfs_mkdir(*dirat, *name, cur_ch - *name);
+				int ret = tfs_mkdir(*dirat, *name, cur_ch - *name);
+				if (ret) {
+					return ret;
+				}
+				dent = tfs_lookup(*dirat, *name, cur_ch - *name);
+				BUG_ON(!dent);
 			} else {
 				return -ENOENT;
 			}
@@ -373,7 +379,6 @@ int tfs_load_image(const char *start)
 	struct inode *dirat;
 	struct dentry *dent;
 	const char *leaf;
-	size_t len;
 	int err;
 	ssize_t write_count;
 
@@ -384,13 +389,38 @@ int tfs_load_image(const char *start)
 
 	for (f = g_files.head.next; f; f = f->next) {
 		// TODO: Lab5: your code is here
-		// dirat = tmpfs_root;
-		// leaf = f->name;
-		// err = tfs_namex(&dirat, &leaf, 1);
-		// if (err < 0 && err != -ENOENT) {
-		// 	return err;
-		// }
+		dirat = tmpfs_root;
+		leaf = f->name;
+		err = tfs_namex(&dirat, &leaf, 1);
+		if (err < 0 && err != -ENOENT) {
+			return err;
+		}
+		switch (f->header.c_mode & CPIO_FT_MASK) {
+			case CPIO_REG:
+				err = tfs_creat(dirat, leaf, strlen(leaf));
+				if (err) {
+					return err;
+				}
+				dent = tfs_lookup(dirat, leaf, strlen(leaf));
+				if (!dent) {
+					return -ENOENT;
+				}
+				write_count = tfs_file_write(dent->inode, 0 ,f->data, f->header.c_filesize);
+				if (write_count < f->header.c_filesize) {
+					return -ENOSPC;
+				}
+				break;
+			case CPIO_DIR:
+				err = tfs_mkdir(dirat, leaf, strlen(leaf));
+				if (err) {
+					return err;
+				}
+				break;
+			default:
+				return -EINVAL;
+		}
 		
+
 	}
 
 	return 0;
