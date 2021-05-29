@@ -367,6 +367,7 @@ ssize_t tfs_file_read(struct inode * inode, off_t offset, char *buff,
 			return -ENOENT;
 		}
 		memcpy(buff, page + page_off, to_read);
+		cur_off += to_read;
 	}
 
 	return cur_off - offset;
