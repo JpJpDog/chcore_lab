@@ -20,7 +20,8 @@ int fs_server_cap;
 
 #define BUFLEN	4096
 
-static char pwd[BUFLEN] = {'/', '\0'};
+static char pwd[BUFLEN] = {0};
+static char path_buf[BUFLEN];
 
 static inline void make_path(const char *dir, char *dst) {
 	if (*dir == '/') { //absolute path
@@ -33,9 +34,10 @@ static inline void make_path(const char *dir, char *dst) {
 }
 
 // a helper function that scan every dirent under `dir` and call `callback` for each of them.
+// return if a callback return > 0. return 0 if all callback return 0. return < 0 if any error.
 static int fs_scan(const char *dir, int (*callback)(struct dirent *, void *), void *arg){
 	// TODO: your code here
-	if (!callback || !dir || !*dir) {
+	if (!callback || !dir ) {
 		return -EINVAL;
 	}
 	struct fs_request req = {
@@ -63,8 +65,8 @@ static int fs_scan(const char *dir, int (*callback)(struct dirent *, void *), vo
 			int cb_ret = callback(dirent, arg);
 			if (cb_ret < 0) {
 				return cb_ret;
-			} else if (cb_ret == 1) { // jump out if callback ret 1
-				return 0;
+			} else if (cb_ret > 0) { // jump out if callback ret 1
+				return cb_ret;
 			}
 			dirent = (void *)dirent + dirent->d_reclen;
 		}
@@ -72,14 +74,39 @@ static int fs_scan(const char *dir, int (*callback)(struct dirent *, void *), vo
 	return 0;
 }
 
-// static int do_complement(char *buf, char *complement, int complement_time)
-// {
-// 	int r = -1;
-// 	// TODO: your code here
+static int complement_callback(struct dirent *dirent, void *args) {
+	char *complement = (char *)args;
+	int comp_len = strlen(complement);
+	if (!strncmp(dirent->d_name, complement, comp_len)) {
+		strcpy(complement, dirent->d_name);
+		return strlen(dirent->d_name) - comp_len;
+	}
+	return 0;
+}
 
-// 	return r;
-
-// }
+static int do_complement(char *buf, char *complement)
+{
+	// TODO: your code here
+	make_path(complement, path_buf);
+	int comp_l = strlen(complement);
+	int i = comp_l;
+	while (i >= 0 && complement[i] != '/') {
+		--i;
+	}
+	complement += i + 1;
+	int comp_len = comp_l - i - 1;
+	path_buf[strlen(path_buf) - comp_len] = '\0';
+	int ret = fs_scan(path_buf, complement_callback, (void *)complement);
+	if (ret < 0) {
+		printf("complement: error %d\n", ret);
+		return ret;
+	} else if (!ret) {
+		return 0;
+	}
+	strcat(buf, complement + comp_l);
+	printf("%s", complement + comp_l);
+	return ret;
+}
 
 extern char getch();
 
@@ -89,12 +116,9 @@ extern char getch();
 char *readline(const char *prompt)
 {
 	static char buf[BUFLEN];
-
-	int i = 0;//, j = 0;
+	int i = 0, j = 0;
 	signed char c = 0;
-	// int ret = 0;
-	// char complement[BUFLEN];
-	// int complement_time = 0;
+	char complement[BUFLEN];
 
 	if (prompt != NULL) {
 		printf("%s", prompt);
@@ -105,17 +129,37 @@ char *readline(const char *prompt)
 		if (c < 0)
 			return NULL;
 		// TODO: your code here
+		if (c == ' ') { //clear the complement
+			j = 0;
+		}
 		if (c >= 0x20 && c < 0x7f) { // printable character
 			buf[i++] = c;
+			complement[j++] = c;
 			usys_putc(c);
 		} else if (c == 0x7f) { // backspace
 			if (i > 0) {
-				buf[--i] = '\0';
+				i--;
+				j--;
 				printf("\b \b");
 			}
-		} else if (c == '\r' || c == '\n') {
+		} else if (c == '\n' || c == '\r') {
 			usys_putc('\n');
+			buf[i] = '\0';
 			break;
+		} else if (c == '\t') {
+			int ret = 0;
+			if (j) {
+				complement[j] = buf[i] = '\0';
+				ret = do_complement(buf, complement);
+				if (ret > 0) {
+					i += ret;
+					j = 0;
+				}
+			}
+			if (!ret) {
+				buf[i++] = c;
+				usys_putc('\t');
+			}
 		}
 	}
 	return buf;
@@ -137,7 +181,7 @@ int do_cd(char *cmdline)
 		return 0;
 	}
 	int ret = fs_scan(args, cd_callback, (void *)args);
-	if (ret) {
+	if (ret < 0) {
 		printf("cd: error %d\n", ret);
 	}
 	return 0;
@@ -161,11 +205,8 @@ int do_ls(char *cmdline)
 	while (*args == ' ') {
 		args++;
 	}
-	if (!*args) {
-		args = pwd;
-	}
 	int ret = fs_scan(args, ls_callback, NULL);
-	if (ret) {
+	if (ret < 0) {
 		printf("ls: error %d\n", ret);
 	}
 	return 0;

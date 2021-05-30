@@ -68,7 +68,6 @@ int ipc_send_cap(struct ipc_connection *conn, ipc_msg_t * ipc_msg)
 	for (i = 0; i < cap_slot_number; i++) {
 		u64 dest_cap;
 
-		kdebug("[IPC] send cap:%d\n", cap_buf[i]);
 		dest_cap = cap_copy(current_process, conn->target->process,
 				    cap_buf[i], false, 0);
 		if (dest_cap < 0)
