@@ -7,7 +7,6 @@
 
 static void fs_dispatch(ipc_msg_t * ipc_msg)
 {
-	printf("tmpfs server recv call\n");
 	int ret = 0;
 	if (ipc_msg->data_len >= 4) {
 		struct fs_request *fr = (struct fs_request *)
@@ -25,6 +24,7 @@ static void fs_dispatch(ipc_msg_t * ipc_msg)
 				usys_exit(-1);
 			}
 		}
+		printf("tmpfs server recv call %d\n", fr->req);
 		switch (fr->req) {
 		case FS_REQ_SCAN:
 			// TODO: you code here
@@ -80,7 +80,7 @@ static void fs_dispatch(ipc_msg_t * ipc_msg)
 		printf("TMPFS: no operation num\n");
 		usys_exit(-1);
 	}
-
+	printf("tmpfs server ret\n");
 	usys_ipc_return(ret);
 }
 

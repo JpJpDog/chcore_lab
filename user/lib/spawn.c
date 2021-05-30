@@ -400,7 +400,7 @@ int launch_process_with_pmos_caps(struct user_elf *user_elf,
 		if (child_process_cap) {
 			*child_process_cap = new_process_cap;
 		}
-		if (main_thread_cap) {
+		if (child_main_thread_cap) {
 			*child_main_thread_cap = main_thread_cap;
 		}
 	}
