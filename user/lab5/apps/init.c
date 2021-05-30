@@ -72,14 +72,14 @@ static int fs_scan(const char *dir, int (*callback)(struct dirent *, void *), vo
 	return 0;
 }
 
-static int do_complement(char *buf, char *complement, int complement_time)
-{
-	int r = -1;
-	// TODO: your code here
+// static int do_complement(char *buf, char *complement, int complement_time)
+// {
+// 	int r = -1;
+// 	// TODO: your code here
 
-	return r;
+// 	return r;
 
-}
+// }
 
 extern char getch();
 

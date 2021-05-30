@@ -33,9 +33,11 @@ static int parse_elf_header(const char *code, struct elf_header *header)
 	struct elf_header_32 *header_32 = (struct elf_header_32 *)code;
 
 	if (!is_elf_magic(&header_64->e_indent)) {
+		u8 *tt = header_64->e_indent.ei_magic;
+		printf("invalid magic number %c %c %c %c\n", tt[0], tt[1], tt[2], tt[3]);
 		return -EINVAL;
 	}
-
+	
 	header->e_indent = *(struct elf_indent *)code;
 
 	if (ELF_ENDIAN_LE(header->e_indent)) {
