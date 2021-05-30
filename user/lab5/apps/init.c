@@ -50,9 +50,7 @@ static int fs_scan(const char *dir, int (*callback)(struct dirent *, void *), vo
 		ipc_msg_t *ipc_msg = ipc_create_msg(&ipc_struct, req_size, 1);
 		ipc_set_msg_cap(ipc_msg, 0, tmpfs_scan_pmo_cap);
 		ipc_set_msg_data(ipc_msg, (char*)&req, 0, req_size);
-		printf("before call\n");
 		int ret = ipc_call(&ipc_struct, ipc_msg);
-		printf("ret! %d\n", ret);
 		ipc_destroy_msg(ipc_msg);
 		if (ret < 0) {
 			return ret;
@@ -62,10 +60,10 @@ static int fs_scan(const char *dir, int (*callback)(struct dirent *, void *), vo
 		req.offset += ret;
 		struct dirent *dirent = (struct dirent*)TMPFS_SCAN_BUF_VADDR;
 		for (int i = 0 ;i < ret; i++) {
-			int err;
-			if ((err = callback(dirent, arg)) < 0) {
-				return err;
-			} else if (err == 1) { // jump out if callback ret 1
+			int cb_ret = callback(dirent, arg);
+			if (cb_ret < 0) {
+				return cb_ret;
+			} else if (cb_ret == 1) { // jump out if callback ret 1
 				return 0;
 			}
 			dirent = (void *)dirent + dirent->d_reclen;
@@ -159,7 +157,6 @@ static int ls_callback(struct dirent *dirent, void *arg) {
 int do_ls(char *cmdline)
 {
 	char *args = cmdline += 2;
-	printf("here! %s\n", args);
 	while (*args == ' ') {
 		args++;
 	}
@@ -183,11 +180,11 @@ int do_cat(char *cmdline)
 		.req = FS_REQ_READ,
 		.count = PAGE_SIZE - 1, //reserve 1 byte in buffer for '\0'
 		.offset = 0,
-		.buff = TMPFS_READ_BUF_VADDR,
+		.buff = TMPFS_SCAN_BUF_VADDR,
 	};
 	make_path(args, req.path);
 	int req_size = sizeof(req);
-	char *read_buf = (char *)TMPFS_READ_BUF_VADDR;
+	char *read_buf = (char *)TMPFS_SCAN_BUF_VADDR;
 	while (1) {
 		ipc_msg_t *ipc_msg = ipc_create_msg(&ipc_struct, req_size, 1);
 		ipc_set_msg_cap(ipc_msg, 0, tmpfs_scan_pmo_cap);
@@ -197,12 +194,13 @@ int do_cat(char *cmdline)
 		if (ret < 0) {
 			return ret;
 		} else if (ret < req.count) {
+			read_buf[ret] = '\0';
+			printf("%s", read_buf);
 			return 0;
 		}
 		req.offset += ret;
-		read_buf[ret] = '\0';
-		printf("%s", read_buf);
 	}
+	printf("\n");
 	return 0;
 }
 
