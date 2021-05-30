@@ -7,15 +7,26 @@
 
 static void fs_dispatch(ipc_msg_t * ipc_msg)
 {
+	printf("tmpfs server recv call\n");
 	int ret = 0;
-
+	int pmo_cap = ipc_get_msg_cap(ipc_msg, 0);
 	if (ipc_msg->data_len >= 4) {
 		struct fs_request *fr = (struct fs_request *)
 		    ipc_get_msg_data(ipc_msg);
 		switch (fr->req) {
 		case FS_REQ_SCAN:
 			// TODO: you code here
+			ret = usys_map_pmo(SELF_CAP, pmo_cap, fr->buff, VM_READ | VM_WRITE);
+			if (ret < 0) {
+				printf("map pmo fail. exit!\n");
+				usys_exit(-1);
+			}
 			fs_server_scan(fr->path, fr->offset, fr->buff, fr->count);
+			ret = usys_unmap_pmo(SELF_CAP, pmo_cap, fr->buff);
+			if (ret < 0) {
+				printf("unmap pmo fail. exit!\n");
+				usys_exit(-1);
+			}
 			break;
 		case FS_REQ_MKDIR:
 			ret = fs_server_mkdir(fr->path);

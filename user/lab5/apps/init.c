@@ -20,6 +20,60 @@ int fs_server_cap;
 
 #define BUFLEN	4096
 
+static char pwd[BUFLEN] = {'/', '\0'};
+
+static inline void make_path(const char *dir, char *dst) {
+	if (*dir == '/') { //absolute path
+		strcpy(dst, dir);
+	} else { //relative path
+		strcpy(dst, pwd);
+		strcat(dst, "/");
+		strcat(dst, dir);
+	}
+}
+
+// a helper function that scan every dirent under `dir` and call `callback` for each of them.
+static int fs_scan(const char *dir, int (*callback)(struct dirent *, void *), void *arg){
+	// TODO: your code here
+	if (!callback || !dir || !*dir) {
+		return -EINVAL;
+	}
+	struct fs_request req = {
+		.req = FS_REQ_SCAN,
+		.count = PAGE_SIZE,
+		.offset = 0,
+		.buff = TMPFS_SCAN_BUF_VADDR,
+	};
+	make_path(dir, req.path);
+	int req_size = sizeof(req);
+	while (1) {
+		ipc_msg_t *ipc_msg = ipc_create_msg(&ipc_struct, req_size, 1);
+		ipc_set_msg_cap(ipc_msg, 0, tmpfs_scan_pmo_cap);
+		ipc_set_msg_data(ipc_msg, (char*)&req, 0, req_size);
+		printf("before call\n");
+		int ret = ipc_call(&ipc_struct, ipc_msg);
+		printf("ret! %d\n", ret);
+		ipc_destroy_msg(ipc_msg);
+		if (ret < 0) {
+			return ret;
+		} else if (ret == 0) {
+			break;
+		}
+		req.offset += ret;
+		struct dirent *dirent = (struct dirent*)TMPFS_SCAN_BUF_VADDR;
+		for (int i = 0 ;i < ret; i++) {
+			int err;
+			if ((err = callback(dirent, arg)) < 0) {
+				return err;
+			} else if (err == 1) { // jump out if callback ret 1
+				return 0;
+			}
+			dirent = (void *)dirent + dirent->d_reclen;
+		}
+	}
+	return 0;
+}
+
 static int do_complement(char *buf, char *complement, int complement_time)
 {
 	int r = -1;
@@ -38,11 +92,11 @@ char *readline(const char *prompt)
 {
 	static char buf[BUFLEN];
 
-	int i = 0, j = 0;
+	int i = 0;//, j = 0;
 	signed char c = 0;
-	int ret = 0;
-	char complement[BUFLEN];
-	int complement_time = 0;
+	// int ret = 0;
+	// char complement[BUFLEN];
+	// int complement_time = 0;
 
 	if (prompt != NULL) {
 		printf("%s", prompt);
@@ -53,21 +107,41 @@ char *readline(const char *prompt)
 		if (c < 0)
 			return NULL;
 		// TODO: your code here
-
+		if (c >= 0x20 && c < 0x7f) { // printable character
+			buf[i++] = c;
+			usys_putc(c);
+		} else if (c == 0x7f) { // backspace
+			if (i > 0) {
+				buf[--i] = '\0';
+				printf("\b \b");
+			}
+		} else if (c == '\r' || c == '\n') {
+			usys_putc('\n');
+			break;
+		}
 	}
 	return buf;
 }
 
+static int cd_callback(struct dirent *dirent, void *args) {
+	strcpy(pwd, (char *)args);
+	return 0;
+}
+
 int do_cd(char *cmdline)
 {
-	cmdline += 2;
-	while (*cmdline == ' ')
-		cmdline++;
-	if (*cmdline == '\0')
-		return 0;
-	if (*cmdline != '/') {
+	char *args = cmdline + 2;
+	while (*args == ' ') {
+		args++;
 	}
-	printf("Build-in command cd %s: Not implemented!\n", cmdline);
+	if (*args == '\0') {
+		strcpy(pwd, "/");
+		return 0;
+	}
+	int ret = fs_scan(args, cd_callback, (void *)args);
+	if (ret) {
+		printf("cd: error %d\n", ret);
+	}
 	return 0;
 }
 
@@ -77,35 +151,58 @@ int do_top()
 	return 0;
 }
 
-void fs_scan(char *path)
-{
-	// TODO: your code here
+static int ls_callback(struct dirent *dirent, void *arg) {
+	printf("%s\n", dirent->d_name);
+	return 0;
 }
 
 int do_ls(char *cmdline)
 {
-	char pathbuf[BUFLEN];
-
-	pathbuf[0] = '\0';
-	cmdline += 2;
-	while (*cmdline == ' ')
-		cmdline++;
-	strcat(pathbuf, cmdline);
-	fs_scan(pathbuf);
+	char *args = cmdline += 2;
+	printf("here! %s\n", args);
+	while (*args == ' ') {
+		args++;
+	}
+	if (!*args) {
+		args = pwd;
+	}
+	int ret = fs_scan(args, ls_callback, NULL);
+	if (ret) {
+		printf("ls: error %d\n", ret);
+	}
 	return 0;
 }
 
 int do_cat(char *cmdline)
 {
-	char pathbuf[BUFLEN];
-
-	pathbuf[0] = '\0';
-	cmdline += 3;
-	while (*cmdline == ' ')
-		cmdline++;
-	strcat(pathbuf, cmdline);
-	// fs_scan(pathbuf);
-	printf("apple banana This is a test file.\n");
+	char *args = cmdline + 3;
+	while (*args == ' ') {
+		args++;
+	}
+	struct fs_request req = {
+		.req = FS_REQ_READ,
+		.count = PAGE_SIZE - 1, //reserve 1 byte in buffer for '\0'
+		.offset = 0,
+		.buff = TMPFS_READ_BUF_VADDR,
+	};
+	make_path(args, req.path);
+	int req_size = sizeof(req);
+	char *read_buf = (char *)TMPFS_READ_BUF_VADDR;
+	while (1) {
+		ipc_msg_t *ipc_msg = ipc_create_msg(&ipc_struct, req_size, 1);
+		ipc_set_msg_cap(ipc_msg, 0, tmpfs_scan_pmo_cap);
+		ipc_set_msg_data(ipc_msg, (char *)&req, 0, req_size);
+		int ret = ipc_call(&ipc_struct, ipc_msg);
+		ipc_destroy_msg(ipc_msg);
+		if (ret < 0) {
+			return ret;
+		} else if (ret < req.count) {
+			return 0;
+		}
+		req.offset += ret;
+		read_buf[ret] = '\0';
+		printf("%s", read_buf);
+	}
 	return 0;
 }
 
